@@ -719,11 +719,11 @@ execsh(char *cmd, char **args)
 
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGHUP, SIG_DFL);
-	signal(SIGINT, SIG_DFL);
+  signal(SIGINT, SIG_DFL);
 	signal(SIGQUIT, SIG_DFL);
 	signal(SIGTERM, SIG_DFL);
 	signal(SIGALRM, SIG_DFL);
-
+  
 	execvp(prog, args);
 	_exit(1);
 }
@@ -1292,6 +1292,9 @@ tsetchar(Rune u, Glyph *attr, int x, int y)
 	term.dirty[y] = 1;
 	term.line[y][x] = *attr;
 	term.line[y][x].u = u;
+  
+  if (isboxdraw(u))
+   term.line[y][x].mode |= ATTR_BOXDRAW;
 }
 
 void
@@ -1390,7 +1393,7 @@ tdefcolor(int *attr, int *npar, int l)
 		g = attr[*npar + 3];
 		b = attr[*npar + 4];
 		*npar += 4;
-		if (!BETWEEN(r, 0, 255) || !BETWEEN(g, 0, 255) || !BETWEEN(b, 0, 255))
+		if (!BETWEEN(r, 0, 254) || !BETWEEN(g, 0, 254) || !BETWEEN(b, 0, 254))
 			fprintf(stderr, "erresc: bad rgb color (%u,%u,%u)\n",
 				r, g, b);
 		else

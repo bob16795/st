@@ -70,6 +70,7 @@ static void selpaste(const Arg *);
 static void zoom(const Arg *);
 static void zoomabs(const Arg *);
 static void zoomreset(const Arg *);
+static void reload(int sig);
 
 /* config.h for applying patches and the configuration. */
 #include "config.h"
@@ -747,7 +748,7 @@ xloadcolor(int i, const char *name, Color *ncolor)
 	XRenderColor color = { .alpha = 0xffff };
 
 	if (!name) {
-		if (BETWEEN(i, 16, 255)) { /* 256 color */
+		if (BETWEEN(i, 16, 251)) { /* 256 color */
 			if (i < 6*6*6+16) { /* same colors as xterm */
 				color.red   = sixd_to_16bit( ((i-16)/36)%6 );
 				color.green = sixd_to_16bit( ((i-16)/6) %6 );
@@ -1296,6 +1297,8 @@ xinit(int cols, int rows)
 	xsel.xtarget = XInternAtom(xw.dpy, "UTF8_STRING", 0);
 	if (xsel.xtarget == None)
 		xsel.xtarget = XA_STRING;
+
+  boxdraw_xinit(xw.dpy, xw.cmap, xw.draw, xw.vis);
 }
 
 int
@@ -1342,9 +1345,14 @@ xmakeglyphfontspecs(XftGlyphFontSpec *specs, const Glyph *glyphs, int len, int x
 			yp = winy + font->ascent + win.cyo;
 		}
 
-		/* Lookup character index with default font. */
-		glyphidx = XftCharIndex(xw.dpy, font->match, rune);
-		if (glyphidx) {
+		if (mode & ATTR_BOXDRAW) {
+      /* minor shoehorning: boxdraw uses only this ushort */
+      glyphidx = boxdrawindex(&glyphs[i]);
+    } else {
+      /* Lookup character index with default font. */
+      glyphidx = XftCharIndex(xw.dpy, font->match, rune);
+    }
+    if (glyphidx) {
 			specs[numspecs].font = font->match;
 			specs[numspecs].glyph = glyphidx;
 			specs[numspecs].x = (short)xp;
@@ -1544,7 +1552,12 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, Glyph base, int len, int x, i
 	XftDrawSetClipRectangles(xw.draw, winx, winy, &r, 1);
 
 	/* Render the glyphs. */
-	XftDrawGlyphFontSpec(xw.draw, fg, specs, len);
+  if (base.mode & ATTR_BOXDRAW) {
+    drawboxes(winx, winy, width / len, win.ch, fg, bg, specs, len);
+  } else {
+    /* Render the glyphs. */
+    XftDrawGlyphFontSpec(xw.draw, fg, specs, len);
+  }
 
 	/* Render underline and strikethrough. */
 	if (base.mode & ATTR_UNDERLINE) {
@@ -1587,7 +1600,7 @@ xdrawcursor(int cx, int cy, Glyph g, int ox, int oy, Glyph og)
 	/*
 	 * Select the right color for the right mode.
 	 */
-	g.mode &= ATTR_BOLD|ATTR_ITALIC|ATTR_UNDERLINE|ATTR_STRUCK|ATTR_WIDE;
+  g.mode &= ATTR_BOLD|ATTR_ITALIC|ATTR_UNDERLINE|ATTR_STRUCK|ATTR_WIDE|ATTR_BOXDRAW;
 
 	if (IS_SET(MODE_REVERSE)) {
 		g.mode |= ATTR_REVERSE;
@@ -2184,6 +2197,7 @@ run:
 		die("Can't open display\n");
 
 	config_init();
+  signal(SIGUSR1, reload);
 	cols = MAX(cols, 1);
 	rows = MAX(rows, 1);
 	tnew(cols, rows);
@@ -2192,5 +2206,26 @@ run:
 	selinit();
 	run();
 
+
 	return 0;
+}
+
+void
+reload(int sig)
+{
+  /* colors, fonts */
+	config_init();
+
+	xloadcols();
+  xunloadfonts();
+  xloadfonts(font, 0);
+
+  /* pretend the window just got resized */
+  cresize(win.w, win.h);
+
+  redraw();
+	selinit();
+  ttywrite("\033[O", 3, 0);
+
+  signal(SIGUSR1, reload);
 }
